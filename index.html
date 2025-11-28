@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ROBLOX Hibrit Platform - 3D</title>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script> 
     
     <style>
@@ -21,7 +22,7 @@
 
         .screen {
             width: 100%;
-            max-width: 1200px; /* Daha geniş alan */
+            max-width: 1200px; 
             margin: 20px auto;
             display: none;
             background-color: white;
@@ -30,7 +31,20 @@
             padding: 20px;
         }
 
-        /* Studio & Game Canvas (Şimdi Three.js Renderer'ı) */
+        /* Ana Ekran */
+        .game-tile {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 10px;
+            cursor: pointer;
+            text-align: center;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+            width: 300px;
+        }
+        .game-tile:hover { background-color: #e0f7ff; }
+
+        /* Studio & Game Canvas Container */
         .canvas-container {
             display: flex;
             position: relative;
@@ -40,7 +54,7 @@
             width: 900px;
             height: 600px;
             border: 3px solid #333;
-            /* Three.js buraya render eder */
+            /* Three.js renderer buraya yerleşir */
         }
         
         #studioToolbar {
@@ -52,6 +66,7 @@
             flex-direction: column;
             gap: 10px;
             width: 250px;
+            height: 600px;
         }
 
         button {
@@ -65,25 +80,25 @@
         }
         button:hover { background-color: #005f99; }
         
-        /* İmleci Studio'da ayarlıyoruz */
-        .studio-active {
-             cursor: default; /* Blok seçili değilken normal imleç */
+        /* Studio aktifken imleci ayarla */
+        #studioCanvasContainer {
+             cursor: default;
         }
     </style>
 </head>
 <body>
 
     <div id="homeScreen" class="screen" style="display: block;"> 
-        <h1>Roblox Hibrit Platform - Ana Ekran (3D)</h1>
-        <p>Projeleriniz:</p>
+        <h1>ROBLOX Hibrit Platform - Ana Ekran (3D)</h1>
+        <p>Projelerinizi seçin:</p>
         <div style="display: flex; flex-wrap: wrap;">
             <div class="game-tile" onclick="loadAndShowStudio();">
                 <h2>🖌️ 3D Studio (Harita Oluştur)</h2>
-                <p>WASD ile hareket edin, fare ile çevirin. Blokları sürükleyerek taşıyın.</p>
+                <p>WASD ile hareket, fare ile çevirme. Blokları sürükleyerek taşıyın.</p>
             </div>
             <div class="game-tile" onclick="loadAndStartGame();">
                 <h2>▶️ Parkur Dünyası (Oyna - 3D)</h2>
-                <p>Kaydedilen haritada karakterinizi hareket ettirin.</p>
+                <p>Kaydedilen haritada 3D oyun modunu deneyimleyin.</p>
             </div>
         </div>
     </div>
@@ -100,12 +115,14 @@
                 <button onclick="saveMapToLocal();" style="background-color: #ffaa00;">💾 Haritayı Kaydet (JSON)</button>
                 <button onclick="loadMapFromLocal();">🔄 Kayıtlı Haritayı Yükle</button>
                 <button onclick="clearMap();" style="background-color: #cc0000;">Haritayı Temizle</button>
-                <p>Kontroller:</p>
-                <ul>
-                    <li>**WASD:** İleri/Geri/Yanlara hareket</li>
-                    <li>**Mouse Sol Tık + Sürükle:** Kamerayı döndür</li>
-                    <li>**Blok Tıkla + Sürükle:** Blokları taşı</li>
-                </ul>
+                <div style="border-top: 1px solid #ccc; margin-top: 10px; padding-top: 10px;">
+                    <p>Kontroller:</p>
+                    <ul>
+                        <li>**WASD:** İleri/Geri/Yanlara hareket</li>
+                        <li>**Mouse Sol Tık + Sürükle (Bloksuz Alan):** Kamerayı döndür</li>
+                        <li>**Mouse Sol Tık + Sürükle (Blok Üzeri):** Blokları taşı</li>
+                    </ul>
+                </div>
                 <p id="selectedBlockInfo">Seçili Blok: Yok</p>
             </div>
         </div>
@@ -124,14 +141,14 @@
         const CANVAS_W = 900;
         const CANVAS_H = 600;
         
-        // 3D Harita Verisi: { x, y, z, w, h, d }
+        // 3D Three.js Sahne Değişkenleri
         let currentPlatforms = []; 
         let studioScene, studioCamera, studioRenderer;
         let studioAnimationFrame = null;
-
-        // Kamera Kontrolleri
+        
+        // Kontrol Değişkenleri
         let keys = {};
-        let mouseLook = false;
+        let mouseLook = false; // Mouse ile kamera döndürme aktif mi?
         let selectedMesh = null; // Raycasting ile seçilen blok
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -142,23 +159,21 @@
         function showScreen(screenId) {
             screens.forEach(id => {
                 document.getElementById(id).style.display = 'none';
-                document.body.classList.remove('studio-active');
             });
             document.getElementById(screenId).style.display = 'block';
             
+            // Ekran geçişinde animasyon döngülerini yönet
             if (screenId === 'studioScreen') {
-                document.body.classList.add('studio-active');
                 if (!studioScene) setupStudio3D();
                 startStudioLoop();
             } else {
                 stopStudioLoop();
-                // Oyun başlatılacaksa buraya 3D oyun kurulumu gelir
-                if (screenId === 'gameScreen') {
-                     setupGame3D();
-                     startGameLoop();
-                } else {
-                    stopGameLoop();
-                }
+            }
+            
+            if (screenId === 'gameScreen') {
+                 // Game loop, loadAndStartGame içinde başlatılıyor
+            } else {
+                stopGameLoop();
             }
         }
         
@@ -167,11 +182,19 @@
              showScreen('studioScreen');
         }
 
-        // --- 1. JSON / KAYIT İŞLEMLERİ (3D Veri Kaydı) ---
+        // Hata Düzeltmesi: Bu fonksiyon artık global olarak tanımlı
+        function loadAndStartGame() {
+             if (loadMapFromLocal()) {
+                setupGame3D();
+                showScreen('gameScreen');
+             }
+        }
+
+        // --- JSON / KAYIT İŞLEMLERİ (3D Veri Kaydı) ---
 
         function saveMapToLocal() {
             try {
-                // Harita verisini (currentPlatforms dizisi) JSON dizesine çevir
+                // Sadece pozisyon ve boyut verilerini kaydet
                 const jsonString = JSON.stringify(currentPlatforms.map(p => ({
                     x: p.position.x, y: p.position.y, z: p.position.z,
                     w: p.scale.x, h: p.scale.y, d: p.scale.z
@@ -186,7 +209,7 @@
 
         function loadMapFromLocal() {
             try {
-                // Önce Three.js sahnede olan tüm blokları temizle
+                // Sahnede varsa temizle
                 if (studioScene) clearScene(studioScene); 
                 currentPlatforms = [];
                 
@@ -195,20 +218,19 @@
 
                 if (jsonString) {
                     loadedData = JSON.parse(jsonString);
-                    alert(`Harita başarıyla yüklendi! (${loadedData.length} platform)`);
                 } else {
                     // Varsayılan zemin
                     loadedData = [{ x: 0, y: -0.5, z: 0, w: 50, h: 1, d: 50 }]; 
-                    alert("Kayıtlı harita bulunamadı, varsayılan zemin yüklendi.");
                 }
 
                 loadedData.forEach(data => {
-                    // Yüklenen veriyi kullanarak 3D blokları oluştur
                     addBlock(data.x, data.y, data.z, data.w, data.h, data.d);
                 });
                 return true;
             } catch (e) {
                 alert("Hata: Kayıtlı harita bozuk!");
+                // Hata durumunda varsayılan zemin yükle
+                addBlock(0, -0.5, 0, 50, 1, 50); 
                 return false;
             }
         }
@@ -222,8 +244,10 @@
 
         function clearScene(scene) {
             if (!scene) return;
+            // Sahnedeki tüm objeleri temizle
             while(scene.children.length > 0){ 
                 const child = scene.children[0];
+                // Obje bir Mesh ise, geometri ve materyali de serbest bırak
                 if (child.isMesh) {
                     child.geometry.dispose();
                     child.material.dispose();
@@ -232,46 +256,48 @@
             }
         }
 
-        // --- 2. 3D STUDIO MANTIĞI (THREE.JS) ---
+        // --- 2. 3D STUDIO KURULUMU VE MANTIĞI ---
 
         function setupStudio3D() {
-            // 1. Sahneyi Oluştur
+            // 1. Sahne ve Kamera
             studioScene = new THREE.Scene();
             studioScene.background = new THREE.Color(0x87ceeb); // Mavi Gökyüzü
 
-            // 2. Kamerayı Oluştur
             studioCamera = new THREE.PerspectiveCamera(75, CANVAS_W / CANVAS_H, 0.1, 1000);
             studioCamera.position.set(20, 10, 20);
             studioCamera.lookAt(0, 0, 0);
 
-            // 3. Renderer'ı Oluştur ve DOM'a Ekle
+            // 2. Renderer
             studioRenderer = new THREE.WebGLRenderer({ antialias: true });
             studioRenderer.setSize(CANVAS_W, CANVAS_H);
             
             const container = document.getElementById('studioCanvasContainer');
-            // Önceki varsa sil
+            // Önceki renderer varsa temizle
             while (container.firstChild) { container.removeChild(container.firstChild); }
             container.appendChild(studioRenderer.domElement);
 
-            // 4. Işıkları Ekle
-            studioScene.add(new THREE.AmbientLight(0x404040));
+            // 3. Işıklar
+            studioScene.add(new THREE.AmbientLight(0x404040)); // Genel loş ışık
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
             directionalLight.position.set(10, 10, 5);
             studioScene.add(directionalLight);
             
-            // 5. Kontrolleri Ekle
+            // 4. Kontroller
             setupStudioControls(studioRenderer.domElement);
         }
 
         function addBlock(x, y, z, w = 4, h = 4, d = 4, color = 0x228B22) {
-            const geometry = new THREE.BoxGeometry(w, h, d);
+            const geometry = new THREE.BoxGeometry(1, 1, 1); // Varsayılan geometri 1x1x1
             const material = new THREE.MeshLambertMaterial({ color: color });
             const block = new THREE.Mesh(geometry, material);
             
             block.position.set(x, y, z);
-            block.scale.set(w, h, d); // Scale'i de veriye uygun ayarla
+            block.scale.set(w, h, d); // Scale ile boyut ayarı
+            
+            // Blok Sınır Kutusu (Çizim Alanı)
+            block.geometry.computeBoundingBox();
 
-            block.userData = { isBlock: true, id: Date.now() }; // Blok olduğunu işaretle
+            block.userData = { isBlock: true, id: Date.now() }; 
             studioScene.add(block);
             currentPlatforms.push(block);
         }
@@ -282,15 +308,16 @@
         let rotationY = 0;
         const moveSpeed = 0.5;
         const rotateSpeed = 0.005;
+        let dragOffset = new THREE.Vector3(); // Blok sürükleme başlangıç farkı
 
         function setupStudioControls(domElement) {
             window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
             
-            // Mouse ile döndürme (Kamera Look)
             domElement.addEventListener('mousedown', onMouseDown);
             domElement.addEventListener('mousemove', onMouseMove);
             domElement.addEventListener('mouseup', onMouseUp);
+            domElement.addEventListener('mouseleave', onMouseUp); // Pencereden çıkınca bırak
         }
 
         function onMouseDown(e) {
@@ -303,17 +330,20 @@
 
                 if (intersects.length > 0) {
                     selectedMesh = intersects[0].object;
+                    // Raycast kesişim noktasını kaydet
+                    selectedMesh.userData.dragStartPoint = intersects[0].point;
                     selectedMesh.material.color.set(0xffa500); // Turuncu yap
                     document.getElementById('selectedBlockInfo').textContent = `Seçili Blok: ${selectedMesh.userData.id}`;
-                    mouseLook = false; // Blok seçildi, kamera dönmeyecek
-                    // Raycast kesişim noktasını kaydet (Zemin düzlemi için)
-                    selectedMesh.userData.dragStartPoint = intersects[0].point;
+                    mouseLook = false; 
+                    
+                    // Bloğun pozisyonu ile kesişim noktası arasındaki farkı hesapla
+                    dragOffset.subVectors(selectedMesh.position, intersects[0].point);
+
                 } else {
-                    // Blok seçilmedi, kamera dönmeye başlayacak
                     selectedMesh = null;
                     document.getElementById('selectedBlockInfo').textContent = `Seçili Blok: Yok`;
                     mouseLook = true;
-                    // Başlangıç fare pozisyonunu kaydet
+                    // Kamera döndürme başlangıç pozisyonunu kaydet
                     rotationX = e.clientX;
                     rotationY = e.clientY;
                 }
@@ -322,34 +352,35 @@
 
         function onMouseMove(e) {
             if (mouseLook) {
-                // Kamerayı Döndür (Çevreleme)
+                // Kamera Döndürme
                 const deltaX = e.clientX - rotationX;
                 const deltaY = e.clientY - rotationY;
                 
                 studioCamera.rotation.y -= deltaX * rotateSpeed;
-                studioCamera.rotation.x -= deltaY * rotateSpeed;
                 
-                // Rotation Y (yukarı/aşağı) sınırla
+                // X ekseni (yukarı/aşağı) döndürmeyi sınırla
+                studioCamera.rotation.x -= deltaY * rotateSpeed;
                 studioCamera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, studioCamera.rotation.x));
 
                 rotationX = e.clientX;
                 rotationY = e.clientY;
             } else if (selectedMesh) {
-                // Blok Sürükleme (Raycasting ile)
-                // Basit bir zemin düzleminde taşıma uyguluyoruz.
+                // Blok Sürükleme (Raycasting)
                 mouse.x = (e.offsetX / CANVAS_W) * 2 - 1;
                 mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
                 
                 raycaster.setFromCamera(mouse, studioCamera);
                 
-                // Zemin düzlemini oluştur (y=0)
-                const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+                // Bloğu taşıyacağımız hayali düzlemi oluştur (bloğun yüksekliğinde sabit tutmak için)
+                const planeY = selectedMesh.position.y;
+                const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
                 const intersectPoint = new THREE.Vector3();
                 raycaster.ray.intersectPlane(plane, intersectPoint);
 
                 if (intersectPoint) {
-                    selectedMesh.position.x = intersectPoint.x;
-                    selectedMesh.position.z = intersectPoint.z;
+                    // Kesişim noktası + dragOffset ile bloğu doğru konuma taşı
+                    selectedMesh.position.x = intersectPoint.x + dragOffset.x;
+                    selectedMesh.position.z = intersectPoint.z + dragOffset.z;
                 }
             }
         }
@@ -372,13 +403,16 @@
             if (keys['s']) moveVector.z += 1;
             if (keys['a']) moveVector.x -= 1;
             if (keys['d']) moveVector.x += 1;
+            
+            if (keys['q']) studioCamera.position.y -= moveSpeed; // Aşağı
+            if (keys['e']) studioCamera.position.y += moveSpeed; // Yukarı
 
             if (moveVector.lengthSq() > 0) {
                 moveVector.normalize().multiplyScalar(moveSpeed);
                 
                 // İleri/Geri (Kameranın baktığı yön)
                 const forward = direction.clone();
-                forward.y = 0; // Yüksekliği sıfırla
+                forward.y = 0; 
                 forward.normalize();
                 studioCamera.position.addScaledVector(forward, -moveVector.z);
 
@@ -388,7 +422,7 @@
             }
         }
 
-        // --- 4. 3D DÖNGÜSÜ ---
+        // --- 4. 3D STUDIO DÖNGÜSÜ ---
 
         function animateStudio() {
             updateCamera();
@@ -406,12 +440,11 @@
             studioAnimationFrame = null;
         }
 
-        // --- OYUN CLIENT MANTIĞI (Basit yer tutucu) ---
+        // --- OYUN CLIENT MANTIĞI (Yer Tutucu) ---
         let gameAnimationFrame = null;
         let gameScene, gameCamera, gameRenderer;
         
         function setupGame3D() {
-            // Basit Oyun Ortamı Kurulumu (Studio'dan farklı bir kamera vb.)
             gameScene = new THREE.Scene();
             gameScene.background = new THREE.Color(0x87ceeb);
 
@@ -429,10 +462,9 @@
             while (container.firstChild) { container.removeChild(container.firstChild); }
             container.appendChild(gameRenderer.domElement);
             
-            // Kaydedilen blokları Oyuncu ortamına ekle
+            // Studio'da kaydedilen blokları oyuna yükle
             currentPlatforms.forEach(mesh => {
-                // Oyuncu için mesh'in kopyasını oluştur (malzeme ve geometriyi tekrar kullan)
-                const block = new THREE.Mesh(mesh.geometry, mesh.material.clone()); 
+                const block = new THREE.Mesh(mesh.geometry, new THREE.MeshLambertMaterial({ color: 0x228B22 })); 
                 block.position.copy(mesh.position);
                 block.scale.copy(mesh.scale);
                 gameScene.add(block);
@@ -442,14 +474,12 @@
             const playerGeo = new THREE.BoxGeometry(1, 2, 1);
             const playerMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
             const playerMesh = new THREE.Mesh(playerGeo, playerMat);
-            playerMesh.position.set(0, 1, 0);
+            playerMesh.position.set(0, 1.5, 0); // Yüksekliği zeminden başlat
             gameScene.add(playerMesh);
-            
-            // Bu kısma 3D fizik ve oyuncu kontrol mantığı entegre edilecektir.
         }
 
         function updateGame() {
-            // 3D Fizik ve Girdi Güncellemeleri buraya gelecek.
+            // Buraya 3D fizik ve Oyuncu kontrol mantığı gelecek.
         }
 
         function drawGame() {
