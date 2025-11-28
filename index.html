@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROBLOX Hibrit Platform</title>
+    <style>
+        /* --- CSS STİLLERİ --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .screen {
+            width: 100%;
+            max-width: 1024px;
+            margin: 20px auto;
+            display: none; /* Varsayılan olarak tüm ekranlar gizli */
+            background-color: white;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        /* Home Screen */
+        #homeScreen h1 { color: #007acc; }
+        .game-tile {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 10px;
+            cursor: pointer;
+            text-align: center;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .game-tile:hover { background-color: #e0f7ff; }
+
+        /* Studio & Game Canvas */
+        .canvas-container {
+            display: flex;
+            position: relative;
+        }
+        canvas {
+            border: 3px solid #333;
+            background-color: #87ceeb; /* Gökyüzü */
+            cursor: crosshair;
+        }
+
+        /* Studio Toolbar */
+        #studioToolbar {
+            padding: 10px;
+            background-color: #eee;
+            border-radius: 5px;
+            margin-left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #007acc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #005f99; }
+    </style>
+</head>
+<body>
+
+    <div id="homeScreen" class="screen" style="display: block;"> 
+        <h1>Roblox Hibrit Platform - Ana Ekran</h1>
+        <p>Projeleriniz:</p>
+        <div style="display: flex; flex-wrap: wrap;">
+            <div class="game-tile" onclick="showScreen('studioScreen');">
+                <h2>🖌️ Roblox Studio (Harita Oluştur)</h2>
+                <p>Kendi parkur haritanızı tasarlayın ve kaydedin.</p>
+            </div>
+            <div class="game-tile" onclick="loadAndStartGame();">
+                <h2>▶️ Parkur Dünyası (Oyna)</h2>
+                <p>Kaydedilen haritada karakterinizi hareket ettirin.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="studioScreen" class="screen">
+        <h1 style="color: #00a000;">Roblox Studio (Web)</h1>
+        <button onclick="showScreen('homeScreen');" style="margin-bottom: 10px;">🏠 Ana Ekrana Dön</button>
+        
+        <div class="canvas-container">
+            <canvas id="studioCanvas" width="800" height="600"></canvas>
+            <div id="studioToolbar">
+                <button onclick="addPlatform(300, 300, 100, 20);">Yeni Platform Ekle</button>
+                <button onclick="saveMapToLocal();" style="background-color: #ffaa00;">💾 Haritayı Kaydet (JSON)</button>
+                <button onclick="loadMapFromLocal();">🔄 Kayıtlı Haritayı Yükle</button>
+                <button onclick="clearMap();" style="background-color: #cc0000;">Temizle</button>
+                <p>Studio: Tıklayıp sürükleyerek platform ekleyebilirsiniz.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameScreen" class="screen">
+        <h1 style="color: #0000ff;">Parkur Oyunu</h1>
+        <button onclick="stopGameLoop(); showScreen('homeScreen');" style="margin-bottom: 10px;">🏠 Ana Ekrana Dön</button>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <script>
+        // --- TEMEL GLOBAL AYARLAR ---
+        const GAME_MAP_KEY = "RobloxMapData"; // localStorage anahtarı
+        const canvasWidth = 800;
+        const canvasHeight = 600;
+
+        let currentPlatforms = []; // Studio ve Oyun tarafından kullanılan harita verisi
+        let player = null;
+        let gameAnimationFrame = null; // Oyun döngüsü ID'si
+
+        // --- EKRAN YÖNETİMİ ---
+        const screens = ['homeScreen', 'studioScreen', 'gameScreen'];
+        
+        function showScreen(screenId) {
+            screens.forEach(id => {
+                document.getElementById(id).style.display = 'none';
+            });
+            document.getElementById(screenId).style.display = 'block';
+            
+            // Ekran geçişinde animasyon döngülerini yönet
+            if (screenId === 'gameScreen') {
+                startGameLoop();
+            } else {
+                stopGameLoop();
+                // Studio ekranına geçince haritayı yükle
+                if (screenId === 'studioScreen') {
+                    setupStudio();
+                    loadMapFromLocal();
+                }
+            }
+        }
+        
+        // --- JSON / KAYIT İŞLEMLERİ (Yerel Depolama Kullanımı) ---
+
+        function saveMapToLocal() {
+            try {
+                // Harita verisini (currentPlatforms dizisi) JSON dizesine çevir
+                const jsonString = JSON.stringify(currentPlatforms);
+                localStorage.setItem(GAME_MAP_KEY, jsonString);
+                alert("Harita başarıyla yerel olarak kaydedildi (JSON)!");
+            } catch (e) {
+                alert("Hata: Harita kaydedilemedi!");
+                console.error(e);
+            }
+        }
+
+        function loadMapFromLocal() {
+            try {
+                const jsonString = localStorage.getItem(GAME_MAP_KEY);
+                if (jsonString) {
+                    // JSON dizesini tekrar JavaScript dizisine çevir
+                    currentPlatforms = JSON.parse(jsonString);
+                    alert(`Harita başarıyla yüklendi! (${currentPlatforms.length} platform)`);
+                } else {
+                    currentPlatforms = [{ x: 0, y: 550, w: 800, h: 50 }]; // Varsayılan zemin
+                    alert("Kayıtlı harita bulunamadı, varsayılan zemin yüklendi.");
+                }
+                // Eğer Studio ekranındaysak, hemen çizimi güncelle
+                if (document.getElementById('studioScreen').style.display === 'block') {
+                    drawStudio();
+                }
+                return true;
+            } catch (e) {
+                alert("Hata: Kayıtlı harita bozuk!");
+                currentPlatforms = [{ x: 0, y: 550, w: 800, h: 50 }];
+                return false;
+            }
+        }
+
+        function clearMap() {
+            currentPlatforms = [];
+            saveMapToLocal();
+            drawStudio();
+        }
+
+        function loadAndStartGame() {
+            if (loadMapFromLocal()) {
+                setupGame();
+                showScreen('gameScreen');
+            }
+        }
+
+        // --- 2. STUDIO MANTIĞI (BASİTLEŞTİRİLMİŞ) ---
+        let studioCanvas, studioCtx;
+        let isDrawing = false;
+        let startX, startY;
+
+        function setupStudio() {
+            studioCanvas = document.getElementById('studioCanvas');
+            studioCtx = studioCanvas.getContext('2d');
+        }
+
+        function drawStudio() {
+            studioCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+            
+            // Platformları Çiz
+            studioCtx.fillStyle = '#228B22'; 
+            currentPlatforms.forEach(p => {
+                studioCtx.fillRect(p.x, p.y, p.w, p.h);
+            });
+            
+            // Şu an çizilen platformu göster
+            if (isDrawing) {
+                const w = studioCanvas.lastX - startX;
+                const h = studioCanvas.lastY - startY;
+                studioCtx.strokeStyle = 'red';
+                studioCtx.lineWidth = 2;
+                studioCtx.strokeRect(startX, startY, w, h);
+            }
+        }
+
+        function addPlatform(x, y, w, h) {
+            currentPlatforms.push({x: x, y: y, w: w, h: h});
+            drawStudio();
+        }
+        
+        // Mouse ile Platform Çizimi (Basit Dikdörtgen Çizimi)
+        studioCanvas.addEventListener('mousedown', (e) => {
+            if (document.getElementById('studioScreen').style.display === 'block') {
+                const rect = studioCanvas.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                startY = e.clientY - rect.top;
+                isDrawing = true;
+            }
+        });
+
+        studioCanvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const rect = studioCanvas.getBoundingClientRect();
+            studioCanvas.lastX = e.clientX - rect.left;
+            studioCanvas.lastY = e.clientY - rect.top;
+            drawStudio();
+        });
+
+        studioCanvas.addEventListener('mouseup', () => {
+            if (isDrawing) {
+                const rect = studioCanvas.getBoundingClientRect();
+                const endX = studioCanvas.lastX;
+                const endY = studioCanvas.lastY;
+
+                const x = Math.min(startX, endX);
+                const y = Math.min(startY, endY);
+                const w = Math.abs(startX - endX);
+                const h = Math.abs(startY - endY);
+
+                if (w > 5 && h > 5) { // Çok küçük çizimleri yok say
+                    addPlatform(x, y, w, h);
+                }
+                isDrawing = false;
+                drawStudio();
+            }
+        });
+
+
+        // --- 3. OYUN MANTIĞI (Önceki Parkur Mantığına Benzer) ---
+        let gameCanvas, gameCtx;
+        let keys = { left: false, right: false, jump: false };
+
+        function setupGame() {
+            gameCanvas = document.getElementById('gameCanvas');
+            gameCtx = gameCanvas.getContext('2d');
+            
+            // Oyuncuyu her oyun başlangıcında sıfırla
+            player = {
+                x: 100, y: 100, width: 40, height: 40,
+                velX: 0, velY: 0, onGround: false,
+                speed: 5, jumpForce: -15, gravity: 0.8
+            };
+            
+            // Klavyeyi dinlemeye başla (Game ekranındayken)
+            document.onkeydown = (e) => {
+                if (e.key === 'a' || e.key === 'A') keys.left = true;
+                if (e.key === 'd' || e.key === 'D') keys.right = true;
+                if (e.key === ' ') keys.jump = true;
+            };
+
+            document.onkeyup = (e) => {
+                if (e.key === 'a' || e.key === 'A') keys.left = false;
+                if (e.key === 'd' || e.key === 'D') keys.right = false;
+                if (e.key === ' ') keys.jump = false;
+            };
+        }
+
+        function updateGame() {
+            // FİZİK KODU (Önceki C++ mantığının JS karşılığı)
+            if (keys.jump && player.onGround) {
+                player.velY = player.jumpForce;
+                player.onGround = false;
+            }
+            keys.jump = false; 
+
+            player.velX = 0;
+            if (keys.left) player.velX = -player.speed;
+            if (keys.right) player.velX = player.speed;
+
+            player.velY += player.gravity;
+
+            let newX = player.x + player.velX;
+            let newY = player.y + player.velY;
+            
+            player.onGround = false;
+
+            // Çarpışma Kontrolü (currentPlatforms'a karşı)
+            for (const plat of currentPlatforms) {
+                // X ekseni kontrolü...
+                if (newX < plat.x + plat.w && newX + player.width > plat.x && player.y < plat.y + plat.h && player.y + player.height > plat.y) {
+                    newX = player.x;
+                }
+                
+                // Y ekseni kontrolü...
+                if (player.x < plat.x + plat.w && player.x + player.width > plat.x && newY < plat.y + plat.h && newY + player.height > plat.y) {
+                    if (player.velY > 0) { // Zemin Çarpışması
+                        newY = plat.y - player.height;
+                        player.velY = 0;
+                        player.onGround = true;
+                    } else if (player.velY < 0) { // Tavan Çarpışması
+                        newY = plat.y + plat.h;
+                        player.velY = 0;
+                    }
+                }
+            }
+            
+            player.x = newX;
+            player.y = newY;
+
+            // Düşme Kontrolü (Reset)
+            if (player.y > gameCanvas.height) {
+                player.x = 100;
+                player.y = 100;
+                player.velY = 0;
+            }
+        }
+
+        function drawGame() {
+            gameCtx.clearRect(0, 0, canvasWidth, canvasHeight); // Tüm canvas'ı temizle
+            
+            // Platformları Çiz
+            gameCtx.fillStyle = '#228B22'; 
+            currentPlatforms.forEach(p => {
+                gameCtx.fillRect(p.x, p.y, p.w, p.h);
+            });
+
+            // Oyuncuyu Çiz
+            gameCtx.fillStyle = '#FF0000'; 
+            gameCtx.fillRect(player.x, player.y, player.width, player.height);
+        }
+
+        function gameLoop() {
+            updateGame();
+            drawGame();
+            gameAnimationFrame = requestAnimationFrame(gameLoop);
+        }
+        
+        function startGameLoop() {
+             if (gameAnimationFrame) cancelAnimationFrame(gameAnimationFrame);
+             gameLoop();
+        }
+
+        function stopGameLoop() {
+            if (gameAnimationFrame) cancelAnimationFrame(gameAnimationFrame);
+            gameAnimationFrame = null;
+        }
+        
+        // --- UYGULAMA BAŞLANGICI ---
+        window.onload = () => {
+            // Başlangıçta Ana Ekranı göster
+            showScreen('homeScreen'); 
+        };
+    </script>
+</body>
+</html>
