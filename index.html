@@ -18,6 +18,9 @@
             justify-content: center;
             align-items: flex-start;
             min-height: 100vh;
+            user-select: none; 
+            -webkit-user-select: none;
+            -moz-user-select: none;
         }
 
         .screen {
@@ -93,6 +96,15 @@
 </head>
 <body>
 
+    <script>
+        document.addEventListener('contextmenu', (e) => {
+            const gameContainer = document.getElementById('gameCanvasContainer');
+            if (gameContainer && gameContainer.contains(e.target)) {
+                e.preventDefault();
+            }
+        });
+    </script>
+
     <div id="homeScreen" class="screen" style="display: block;"> 
         <h1>ROBLOX Hibrit Platform - Ana Ekran (3D)</h1>
         <p>Projelerinizi seçin:</p>
@@ -102,8 +114,8 @@
                 <p>**N** (Taşıma), **B** (Boyutlandırma), **O** (Döndürme) modları ile çalışın.</p>
             </div>
             <div class="game-tile" onclick="loadAndStartGame();">
-                <h2>▶️ Parkur Dünyası (Oyna - 3D)</h2>
-                <p>**WASD, Space** tuşları ile haritada hareket edin.</p>
+                <h2>▶️ Parkur Dünyası (Oyna - TPS)</h2>
+                <p>**WASD, Space** ve **Sağ Fare Tıklaması ile çevirme** aktif.</p>
             </div>
         </div>
     </div>
@@ -137,10 +149,11 @@
     </div>
 
     <div id="gameScreen" class="screen">
-        <h1 style="color: #0000ff;">3D Parkur Oyunu</h1>
+        <h1 style="color: #0000ff;">3D Parkur Oyunu (TPS)</h1>
         <button onclick="stopGameLoop(); showScreen('homeScreen');" style="margin-bottom: 10px;">🏠 Ana Ekrana Dön</button>
         <div id="gameCanvasContainer">
             </div>
+        <p style="margin-top: 10px;">Karakteri döndürmek için **Sağ Fare Tuşuna basılı tutarak** fareyi hareket ettirin.</p>
     </div>
 
     <script>
@@ -148,8 +161,8 @@
         const GAME_MAP_KEY = "RobloxMapData3D"; 
         const CANVAS_W = 900;
         const CANVAS_H = 600;
-        const HANDLE_SIZE = 0.5; // Handle dairelerinin boyutu
-        const ARROW_LENGTH = 8; // Ok işaretlerinin uzunluğu
+        const HANDLE_SIZE = 0.5; 
+        const ARROW_LENGTH = 8; 
         
         // 3D Three.js Sahne Değişkenleri
         let mapDataJSON = []; 
@@ -159,11 +172,10 @@
         // Studio Kontrol Değişkenleri
         let keys = {};
         let mouseLook = false; 
-        let studioMode = 'move'; // Varsayılan: Taşıma
-        let selectedMesh = null; // Tıklanan ana blok
-        let selectedHandle = null; // Tıklanan manipülasyon aracı
-        let transformControlsGroup = null; // Handle'ları tutan grup
-        let dragOffset = new THREE.Vector3(); // Taşıma modunda ofset
+        let studioMode = 'n'; // Varsayılan: Taşıma (N)
+        let selectedMesh = null; 
+        let selectedHandle = null; 
+        let transformControlsGroup = null; 
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -172,6 +184,11 @@
         let gameScene, gameCamera, gameRenderer;
         let gameAnimationFrame = null;
         let playerMesh = null;
+        let isGameDragging = false;
+        let gameDragStart = { x: 0, y: 0 };
+        const TPS_DISTANCE = 12; // Oyuncu ile kamera arasındaki mesafe
+        const TPS_HEIGHT = 6;    // Kamera yüksekliği
+        const GAME_ROTATE_SPEED = 0.005; // Kamera dönüş hızı
         
         // Oyuncu Fizik Parametreleri
         const PLAYER_HEIGHT = 2;
@@ -185,9 +202,9 @@
         
         function getModeText() {
             switch(studioMode) {
-                case 'move': return 'Taşıma (N)';
-                case 'resize': return 'Boyutlandırma (B)';
-                case 'rotate': return 'Döndürme (O)';
+                case 'n': return 'Taşıma (N)';
+                case 'b': return 'Boyutlandırma (B)';
+                case 'o': return 'Döndürme (O)';
                 default: return 'Bilinmiyor';
             }
         }
@@ -237,14 +254,14 @@
                 updateToolbarInfo();
             }
         }
-
+        
         function loadAndStartGame() {
             loadMapFromLocal(); 
             setupGame3D(); 
             showScreen('gameScreen');
         }
 
-        // --- JSON / KAYIT İŞLEMLERİ ---
+        // --- JSON / KAYIT İŞLEMLERİ (Kısaltıldı) ---
 
         function saveMapToLocal() {
             const dataToSave = studioScene.children
@@ -371,9 +388,8 @@
             });
         }
         
-        // --- HANDLE YARDIMCI FONKSİYONLARI ---
+        // --- HANDLE YARDIMCI FONKSİYONLARI (Kısaltıldı) ---
 
-        // Taşıma (N) Oku
         function createArrow(axis, color) {
             const dir = new THREE.Vector3();
             if (axis === 'x') dir.set(1, 0, 0);
@@ -382,17 +398,12 @@
 
             const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), ARROW_LENGTH, color, 1.5, 1);
             
-            // Ok ucunu seçilebilir yapmak için ArrowHelper'ın içindeki Cone Mesh'i kullanıyoruz.
-            // ArrowHelper bir grup, içindeki mesh'i alıp userdata'ya eklememiz gerek.
-            const cone = arrow.children[0]; 
-
-            arrow.userData = { isHandle: true, axis: axis, mode: 'move', color: color };
-            cone.userData = arrow.userData; // Raycasting için Cone'a da aynı veriyi ekle
+            arrow.userData = { isHandle: true, axis: axis, mode: 'n', color: color };
+            arrow.children.forEach(child => child.userData = arrow.userData); 
 
             return arrow;
         }
 
-        // Boyutlandırma (B) Küresi
         function createResizeSphere(pos, axis, dir, color, mesh) {
             const handleGeometry = new THREE.SphereGeometry(HANDLE_SIZE, 12, 12);
             const handleMaterial = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.8 });
@@ -401,18 +412,17 @@
             handle.userData = { 
                 isHandle: true, 
                 axis: axis, 
-                direction: dir, // +1 veya -1
-                mode: 'resize',
+                direction: dir, 
+                mode: 'b',
                 parentMesh: mesh 
             };
             return handle;
         }
 
-        // Döndürme (O) Torus
         function createRotationTorus(axis, color) {
             const torusGeometry = new THREE.TorusGeometry(8, 0.2, 8, 50);
             const handle = new THREE.Mesh(torusGeometry, new THREE.MeshBasicMaterial({ color: color, wireframe: true }));
-            handle.userData = { isHandle: true, axis: axis, mode: 'rotate' };
+            handle.userData = { isHandle: true, axis: axis, mode: 'o' };
             
             if (axis === 'x') handle.rotation.z = Math.PI / 2;
             if (axis === 'z') handle.rotation.x = Math.PI / 2;
@@ -426,33 +436,26 @@
         function attachHandles(mesh) {
             if (!transformControlsGroup) return;
 
-            // 1. Önceki handle'ları temizle
             clearScene(transformControlsGroup);
             transformControlsGroup.visible = false;
             
             if (!mesh) return;
             
-            // 2. Bloğun pozisyon ve rotasyonunu Handle grubuna kopyala
             transformControlsGroup.position.copy(mesh.position);
             transformControlsGroup.rotation.copy(mesh.rotation);
             const scale = mesh.scale;
             
-            if (studioMode === 'move') {
-                // Taşıma Modu (N)
+            if (studioMode === 'n') {
                 transformControlsGroup.add(createArrow('x', 0xff0000));
                 transformControlsGroup.add(createArrow('y', 0x00ff00));
                 transformControlsGroup.add(createArrow('z', 0x0000ff));
                 
-            } else if (studioMode === 'resize') {
-                // Boyutlandırma Modu (B)
+            } else if (studioMode === 'b') {
                 const handlePositions = [
-                    // X Ekseni (Kırmızı)
                     { axis: 'x', dir: 1, pos: new THREE.Vector3(scale.x / 2, 0, 0), color: 0xff0000 }, 
                     { axis: 'x', dir: -1, pos: new THREE.Vector3(-scale.x / 2, 0, 0), color: 0xff0000 }, 
-                    // Y Ekseni (Yeşil)
                     { axis: 'y', dir: 1, pos: new THREE.Vector3(0, scale.y / 2, 0), color: 0x00ff00 }, 
                     { axis: 'y', dir: -1, pos: new THREE.Vector3(0, -scale.y / 2, 0), color: 0x00ff00 }, 
-                    // Z Ekseni (Mavi)
                     { axis: 'z', dir: 1, pos: new THREE.Vector3(0, 0, scale.z / 2), color: 0x0000ff }, 
                     { axis: 'z', dir: -1, pos: new THREE.Vector3(0, 0, -scale.z / 2), color: 0x0000ff } 
                 ];
@@ -462,8 +465,7 @@
                     transformControlsGroup.add(handle);
                 });
                 
-            } else if (studioMode === 'rotate') {
-                // Döndürme Modu (O)
+            } else if (studioMode === 'o') {
                 transformControlsGroup.add(createRotationTorus('x', 0xff0000));
                 transformControlsGroup.add(createRotationTorus('y', 0x00ff00));
                 transformControlsGroup.add(createRotationTorus('z', 0x0000ff));
@@ -473,7 +475,7 @@
         }
 
 
-        // --- 3. KAMERA VE MANİPÜLASYON KONTROLLERİ ---
+        // --- 3. KAMERA VE MANİPÜLASYON KONTROLLERİ (Kısaltıldı) ---
 
         let rotationX = 0;
         let rotationY = 0;
@@ -482,14 +484,13 @@
 
         function setupStudioControls(domElement) {
             window.addEventListener('keydown', (e) => { 
-                keys[e.key.toLowerCase()] = true; 
+                const key = e.key.toLowerCase();
+                keys[key] = true; 
                 
                 // Mod değişimleri
-                const newMode = e.key.toLowerCase();
-                if (newMode === 'n' || newMode === 'b' || newMode === 'o') {
-                    studioMode = newMode;
+                if (key === 'n' || key === 'b' || key === 'o') {
+                    studioMode = key;
                     updateToolbarInfo();
-                    // Yeni moda göre handle'ları güncelle
                     if (selectedMesh) {
                         attachHandles(selectedMesh);
                     } else {
@@ -512,28 +513,22 @@
             mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
             raycaster.setFromCamera(mouse, studioCamera);
             
-            // 1. Handle Seçimi (Taşıma, Boyutlandırma, Döndürme)
             if (transformControlsGroup.visible) {
-                // Handle'lar bir grup içinde olduğu için recursive true olmalı
                 const intersectsHandle = raycaster.intersectObjects(transformControlsGroup.children, true); 
                 
-                // Sadece mevcut moddaki handle'ları seç
                 let foundHandle = intersectsHandle.find(i => {
                     const obj = i.object;
-                    // ArrowHelper içindeki Cone'a tıklanmışsa, ArrowHelper'ın kendisini al
-                    const handle = obj.userData.isHandle ? obj : obj.parent.userData.isHandle ? obj.parent : null;
-                    return handle && handle.userData.mode === studioMode;
+                    const handleUserData = obj.userData.isHandle ? obj.userData : obj.parent && obj.parent.userData.isHandle ? obj.parent.userData : null;
+                    return handleUserData && handleUserData.mode === studioMode;
                 });
                 
                 if (foundHandle) {
                     selectedHandle = foundHandle.object.userData.isHandle ? foundHandle.object : foundHandle.object.parent;
                     
-                    // selectedMesh'i atama (Handle'a tıklayınca zaten seçili olmalı, ancak emin olmak için)
-                    if (selectedHandle.userData.mode === 'resize') {
+                    if (selectedHandle.userData.mode === 'b') {
                         selectedMesh = selectedHandle.userData.parentMesh; 
                     } 
                     
-                    // Taşıma/Boyutlandırma için başlangıç Ray kesişim noktasını kaydet
                     selectedHandle.userData.dragStartPoint = foundHandle.point.clone();
                     
                     mouseLook = false; 
@@ -541,11 +536,9 @@
                 }
             }
 
-            // Önceki seçimi temizle
             if (selectedMesh) selectedMesh.material.color.set(0x228B22);
             selectedHandle = null;
             
-            // 2. Blok Seçimi (Handle seçilemediyse)
             const intersectsBlock = raycaster.intersectObjects(studioScene.children.filter(c => c.userData.isBlock));
 
             if (intersectsBlock.length > 0) {
@@ -557,13 +550,11 @@
                 
                 mouseLook = false; 
                 
-                if (studioMode === 'move') {
-                    // Blok Taşıma için offset hesapla (Handle'a tıklanmadıysa XZ serbest taşıma için)
+                if (studioMode === 'n') {
                     dragOffset.subVectors(selectedMesh.position, intersectsBlock[0].point);
                 }
                 
             } else {
-                // Hiçbir şey seçilmedi, kamera döndürme moduna gir
                 selectedMesh = null;
                 attachHandles(null);
                 updateToolbarInfo();
@@ -578,7 +569,6 @@
             mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
 
             if (mouseLook) {
-                // Kamera Döndürme
                 const deltaX = e.clientX - rotationX;
                 const deltaY = e.clientY - rotationY;
                 
@@ -589,88 +579,76 @@
                 rotationX = e.clientX;
                 rotationY = e.clientY;
             } else if (selectedHandle) {
-                // Handle Sürükleme Mantığı (N, B, O)
-                
                 raycaster.setFromCamera(mouse, studioCamera);
                 const mesh = selectedMesh;
                 const axis = selectedHandle.userData.axis;
+                const startPoint = selectedHandle.userData.dragStartPoint;
                 
-                if (studioMode === 'resize') {
-                    // Boyutlandırma (B Modu)
+                if (studioMode === 'b') {
                     const direction = selectedHandle.userData.direction;
                     
-                    // X, Y, Z eksenine dik düzlemi oluştur
-                    let plane;
-                    if (axis === 'x') plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -mesh.position.z);
-                    if (axis === 'y') plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -mesh.position.y);
-                    if (axis === 'z') plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), -mesh.position.x);
+                    let camDirection = new THREE.Vector3();
+                    studioCamera.getWorldDirection(camDirection);
+                    const plane = new THREE.Plane(camDirection, -startPoint.dot(camDirection));
 
                     const intersectPoint = new THREE.Vector3();
                     raycaster.ray.intersectPlane(plane, intersectPoint);
                     
                     if (intersectPoint) {
-                        let newIntersectionPoint = intersectPoint[axis];
+                        const deltaVector = new THREE.Vector3().subVectors(intersectPoint, startPoint);
                         
-                        // Sabit kalması gereken karşı yüzeyin pozisyonu
-                        const fixedSurfacePos = mesh.position[axis] - (mesh.scale[axis] * direction) / 2;
+                        const worldAxis = new THREE.Vector3();
+                        if (axis === 'x') worldAxis.set(1, 0, 0);
+                        if (axis === 'y') worldAxis.set(0, 1, 0);
+                        if (axis === 'z') worldAxis.set(0, 0, 1);
+                        worldAxis.applyQuaternion(mesh.quaternion);
                         
-                        let newDimension = Math.abs(newIntersectionPoint - fixedSurfacePos);
-                        newDimension = Math.max(0.5, newDimension); // Min 0.5
+                        const moveDistance = deltaVector.dot(worldAxis);
+                        
+                        let newDimension = mesh.scale[axis] + 2 * moveDistance * direction;
+                        newDimension = Math.max(0.5, newDimension); 
 
                         const oldDimension = mesh.scale[axis];
                         const delta = newDimension - oldDimension;
                         
                         if (Math.abs(delta) > 0.01) {
                             mesh.scale[axis] = newDimension;
-                            
-                            // Yükseklik değişirken bloğun zemine yapışık kalması için
-                            // Y ekseninde (boyutlandırma) pozisyonu yarı delta kadar kaydır
                             mesh.position[axis] += (delta / 2) * direction;
 
-                            attachHandles(mesh); // Handle'ları yeniden konumlandır
+                            selectedHandle.userData.dragStartPoint = intersectPoint.clone();
+                            attachHandles(mesh); 
                         }
                     }
 
-                } else if (studioMode === 'move') {
-                    // Taşıma (N Modu) - Ok işaretleri boyunca taşıma
-                    
-                    // Taşıma düzlemi: Kamera bakış açısına en dik ve handle'ın başladığı noktadan geçen düzlem
-                    const startPoint = selectedHandle.userData.dragStartPoint;
-                    
-                    let planeNormal = new THREE.Vector3();
+                } else if (studioMode === 'n') {
+                    const worldAxis = new THREE.Vector3();
+                    if (axis === 'x') worldAxis.set(1, 0, 0);
+                    if (axis === 'y') worldAxis.set(0, 1, 0);
+                    if (axis === 'z') worldAxis.set(0, 0, 1);
+                    worldAxis.applyQuaternion(mesh.quaternion); 
+
                     let camDirection = new THREE.Vector3();
                     studioCamera.getWorldDirection(camDirection);
                     
-                    // Taşıma eksenine dik olan ve kameraya bakan bir vektör oluştur
-                    if (axis === 'x') planeNormal.set(0, camDirection.y, camDirection.z);
-                    if (axis === 'y') planeNormal.set(camDirection.x, 0, camDirection.z);
-                    if (axis === 'z') planeNormal.set(camDirection.x, camDirection.y, 0);
-                    planeNormal.normalize();
-                    
-                    const plane = new THREE.Plane(planeNormal, -startPoint.dot(planeNormal));
+                    const plane = new THREE.Plane(camDirection, -startPoint.dot(camDirection));
                     const intersectPoint = new THREE.Vector3();
                     raycaster.ray.intersectPlane(plane, intersectPoint);
 
                     if (intersectPoint) {
-                        // Kesişim noktasından başlangıç noktasını çıkar (delta vektörü)
-                        const delta = new THREE.Vector3().subVectors(intersectPoint, startPoint);
-
-                        // Delta vektörünü sadece seçilen eksen üzerinde kullan
-                        if (axis === 'x') mesh.position.x += delta.x;
-                        if (axis === 'y') mesh.position.y += delta.y;
-                        if (axis === 'z') mesh.position.z += delta.z;
+                        const deltaVector = new THREE.Vector3().subVectors(intersectPoint, startPoint);
+                        const moveDistance = deltaVector.dot(worldAxis);
+                        const moveVector = worldAxis.clone().multiplyScalar(moveDistance);
                         
-                        // Yeni başlangıç noktası olarak kesişim noktasını kaydet
+                        mesh.position.add(moveVector);
+                        
                         selectedHandle.userData.dragStartPoint.copy(intersectPoint);
                         
-                        // Handle'ları bloğa taşı
-                        attachHandles(mesh);
+                        attachHandles(mesh); 
                     }
                 }
                 
-            } else if (selectedMesh && studioMode === 'move') {
-                // Blok Taşıma (N Modu - Handle yerine bloğa tıklama)
-                // Bu, XZ serbest taşıma olmalıdır
+            } else if (selectedMesh && studioMode === 'n') {
+                // Blok Taşıma (XZ serbest taşıma)
                 raycaster.setFromCamera(mouse, studioCamera);
                 
                 const planeY = selectedMesh.position.y;
@@ -681,7 +659,7 @@
                 if (intersectPoint) {
                     selectedMesh.position.x = intersectPoint.x + dragOffset.x;
                     selectedMesh.position.z = intersectPoint.z + dragOffset.z;
-                    // Handle'ları da bloğa taşı (görünseler bile pozisyonu senkronize et)
+                    
                     if (transformControlsGroup.visible) {
                         transformControlsGroup.position.copy(selectedMesh.position);
                     }
@@ -692,11 +670,11 @@
         function onMouseUp() {
             mouseLook = false;
             if (selectedHandle) {
-                // Sürükleme bitince handle'ı bırak
                 selectedHandle = null;
             }
         }
 
+        // --- STUDIO KAMERA HAREKETİ (Kısaltıldı) ---
         function updateCamera() {
             const direction = new THREE.Vector3();
             studioCamera.getWorldDirection(direction);
@@ -724,7 +702,7 @@
             }
         }
 
-        // --- 4. 3D STUDIO DÖNGÜSÜ ---
+        // --- 4. 3D STUDIO DÖNGÜSÜ (Kısaltıldı) ---
 
         function animateStudio() {
             updateCamera();
@@ -742,7 +720,7 @@
             studioAnimationFrame = null;
         }
 
-        // --- 5. OYUN CLIENT MANTIĞI (WASD + SPACE) ---
+        // --- 5. OYUN CLIENT MANTIĞI (WASD + SPACE + TPS Kamera) ---
         
         function setupGame3D() {
             gameScene = new THREE.Scene();
@@ -762,16 +740,23 @@
             
             createBlocksFromData(gameScene, mapDataJSON, false);
 
-            const playerGeo = new THREE.CylinderGeometry(PLAYER_RADIUS, PLAYER_RADIUS, PLAYER_HEIGHT, 16);
+            // Player mesh'ini görünür yap
+            const playerGeo = new THREE.BoxGeometry(PLAYER_RADIUS * 2, PLAYER_HEIGHT, PLAYER_RADIUS * 2);
             const playerMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
             playerMesh = new THREE.Mesh(playerGeo, playerMat);
             playerMesh.position.set(0, PLAYER_HEIGHT / 2 + 1, 0); 
             gameScene.add(playerMesh);
 
             playerMesh.userData = {
-                velX: 0, velY: 0, velZ: 0, onGround: false
+                velX: 0, velY: 0, velZ: 0, onGround: false, rotationY: 0
             };
             
+            // Kamera Kontrolleri
+            container.addEventListener('mousedown', onGameMouseDown);
+            document.addEventListener('mousemove', onGameMouseMove);
+            document.addEventListener('mouseup', onGameMouseUp);
+            
+            // Klavye Zıplama
             window.addEventListener('keydown', (e) => { 
                 keys[e.key.toLowerCase()] = true; 
                 if (e.key === ' ' && playerMesh && playerMesh.userData.onGround) {
@@ -782,24 +767,58 @@
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
         }
 
+        function onGameMouseDown(e) {
+            // Sağ Tık (2) ile sürüklemeyi başlat
+            if (e.button === 2) { 
+                isGameDragging = true;
+                gameDragStart.x = e.clientX;
+                gameDragStart.y = e.clientY;
+            }
+        }
+
+        function onGameMouseUp(e) {
+            if (e.button === 2) { 
+                isGameDragging = false;
+            }
+        }
+
+        function onGameMouseMove(e) {
+            if (!isGameDragging || !playerMesh) return;
+            
+            const deltaX = e.clientX - gameDragStart.x;
+            
+            // Player'ı Y ekseninde döndür
+            playerMesh.rotation.y -= deltaX * GAME_ROTATE_SPEED;
+            
+            // Player'ın Y rotasyonunu kaydet
+            playerMesh.userData.rotationY = playerMesh.rotation.y;
+            
+            gameDragStart.x = e.clientX;
+        }
+
         function updateGame() {
             if (!playerMesh) return;
             
             let userData = playerMesh.userData;
             let currentPos = playerMesh.position;
             
-            let moveVector = new THREE.Vector3(0, 0, 0);
-            if (keys['w']) moveVector.z -= 1;
-            if (keys['s']) moveVector.z += 1;
-            if (keys['a']) moveVector.x -= 1;
-            if (keys['d']) moveVector.x += 1;
+            let currentRotationY = playerMesh.userData.rotationY;
             
-            if (moveVector.lengthSq() > 0) {
-                moveVector.normalize().multiplyScalar(MOVE_SPEED);
-                currentPos.x -= moveVector.x;
-                currentPos.z -= moveVector.z;
-            }
+            // --- 1. Hareket Vektörlerini Hesapla (WASD) ---
+            
+            // Player'ın baktığı yöne doğru (currentRotationY'ye göre) hareket vektörlerini hesapla
+            let forwardVector = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotationY);
+            let rightVector = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotationY);
+            
+            // Hareket uygula
+            if (keys['w']) currentPos.addScaledVector(forwardVector, MOVE_SPEED);
+            if (keys['s']) currentPos.addScaledVector(forwardVector, -MOVE_SPEED);
+            if (keys['a']) currentPos.addScaledVector(rightVector, -MOVE_SPEED);
+            if (keys['d']) currentPos.addScaledVector(rightVector, MOVE_SPEED);
 
+
+            // --- 2. Yerçekimi ve Zemin Çarpışması ---
+            
             userData.velY -= GRAVITY;
             currentPos.y += userData.velY;
             userData.onGround = false;
@@ -822,9 +841,16 @@
                 }
             });
 
-            // Kamera Takibi
-            gameCamera.position.set(currentPos.x, currentPos.y + 5, currentPos.z + 10);
-            gameCamera.lookAt(currentPos.x, currentPos.y, currentPos.z);
+            // --- 3. Kamera Takibi (TPS) ---
+            
+            // Kamera pozisyonunu player'ın arkasına, yukarıya ve player'ın rotasyonuna göre ayarla
+            const offset = new THREE.Vector3(0, TPS_HEIGHT, TPS_DISTANCE);
+            // Player'ın rotasyonunu kullan
+            offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotationY); 
+
+            // Kamerayı player'dan ofset kadar uzağa yerleştir (çıkarma işlemi)
+            gameCamera.position.copy(playerMesh.position).sub(offset);
+            gameCamera.lookAt(playerMesh.position.x, playerMesh.position.y + 2, playerMesh.position.z); // Player'a bak
         }
 
         function drawGame() {
@@ -846,6 +872,7 @@
             if (gameAnimationFrame) cancelAnimationFrame(gameAnimationFrame);
             gameAnimationFrame = null;
             playerMesh = null;
+            // Fare kilitlenmediği için serbest bırakmaya gerek yok
         }
         
         // --- UYGULAMA BAŞLANGICI ---
