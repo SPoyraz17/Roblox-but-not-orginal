@@ -51,7 +51,7 @@
         .canvas-container {
             display: flex;
             position: relative;
-            align-items: flex-start; /* Telefonu yukarı hizala */
+            align-items: flex-start;
         }
 
         #studioCanvasContainer, #gameCanvasContainer {
@@ -296,6 +296,8 @@
         let selectedMesh = null; 
         let selectedHandle = null; 
         let transformControlsGroup = null; 
+        let dragOffset = new THREE.Vector3(); // Taşıma ofseti
+        
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -306,16 +308,16 @@
         let playerMesh = null;
         let isGameDragging = false;
         let gameDragStart = { x: 0, y: 0 };
-        let currentZoomLevel = 1.0; // Studio/Game için zoom seviyesi
+        let currentZoomLevel = 1.0; 
         
         // TPS Kamera Ayarları
-        let TPS_DISTANCE_DEFAULT = 12; // Varsayılan
+        let TPS_DISTANCE_DEFAULT = 12; 
         let TPS_HEIGHT = 6;            
         const GAME_ROTATE_SPEED = 0.005; 
         const MAX_ZOOM = 4;
         const MIN_ZOOM = 0.5;
         
-        // Oyuncu Fizik Parametreleri (Kısaltıldı)
+        // Oyuncu Fizik Parametreleri 
         const PLAYER_HEIGHT = 2;
         const PLAYER_RADIUS = 0.5;
         const GRAVITY = 0.08;
@@ -329,6 +331,95 @@
             "KediKIZ": []
         };
         
+        // --- ÇEKİRDEK UTILITY & DÖNGÜ YÖNETİMİ (Hata Düzeltmeleri burada!) ---
+
+        /** Three.js sahnelerindeki tüm blokları temizler. */
+        function clearScene(scene) {
+            if (!scene) return;
+            const objectsToRemove = scene.children.filter(child => child.userData.isBlock);
+            if (scene === studioScene && transformControlsGroup) {
+                 while (transformControlsGroup.children.length > 0) {
+                    const child = transformControlsGroup.children[0];
+                    if (child.isMesh) {
+                        child.geometry.dispose();
+                        child.material.dispose();
+                    }
+                    transformControlsGroup.remove(child);
+                 }
+                 transformControlsGroup.visible = false;
+            }
+            
+            objectsToRemove.forEach(child => {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    child.material.dispose();
+                }
+                scene.remove(child);
+            });
+        }
+        
+        /** Harita verisini yerel depolamadan yükler. */
+        function loadMapFromLocal() {
+            const jsonString = localStorage.getItem(GAME_MAP_KEY);
+            
+            try {
+                if (jsonString) {
+                    mapDataJSON = JSON.parse(jsonString);
+                } else {
+                    // Varsayılan zemin
+                    mapDataJSON = [{ x: 0, y: -0.5, z: 0, w: 50, h: 1, d: 50 }]; 
+                }
+                return true;
+            } catch (e) {
+                alert("Hata: Kayıtlı harita bozuk! Varsayılan harita yükleniyor.");
+                mapDataJSON = [{ x: 0, y: -0.5, z: 0, w: 50, h: 1, d: 50 }];
+                return false;
+            }
+        }
+        
+        /** Haritayı yerel depolamaya kaydeder. */
+        function saveMapToLocal() {
+            const dataToSave = studioScene.children
+                .filter(c => c.userData.isBlock)
+                .map(p => ({
+                    x: p.position.x, y: p.position.y, z: p.position.z,
+                    w: p.scale.x, h: p.scale.y, d: p.scale.z
+                }));
+            
+            try {
+                const jsonString = JSON.stringify(dataToSave);
+                localStorage.setItem(GAME_MAP_KEY, jsonString);
+                alert("Harita başarıyla yerel olarak kaydedildi (JSON)!");
+            } catch (e) {
+                alert("Hata: Harita kaydedilemedi!");
+                console.error(e);
+            }
+        }
+
+        /** Studio döngüsünü başlatır. */
+        function startStudioLoop() {
+             if (studioAnimationFrame) cancelAnimationFrame(studioAnimationFrame);
+             animateStudio();
+        }
+
+        /** Studio döngüsünü durdurur. */
+        function stopStudioLoop() {
+            if (studioAnimationFrame) cancelAnimationFrame(studioAnimationFrame);
+            studioAnimationFrame = null;
+        }
+
+        /** Oyun döngüsünü başlatır. */
+        function startGameLoop() {
+             if (gameAnimationFrame) cancelAnimationFrame(gameAnimationFrame);
+             gameLoop();
+        }
+
+        /** Oyun döngüsünü durdurur. */
+        function stopGameLoop() {
+            if (gameAnimationFrame) cancelAnimationFrame(gameAnimationFrame);
+            gameAnimationFrame = null;
+            playerMesh = null;
+        }
 
         // --- 0. OTURUM AÇMA MANTIĞI ---
         
@@ -343,7 +434,7 @@
             }
         }
 
-        // --- 1. EKRAN VE MOD YÖNETİMİ (Kısaltıldı) ---
+        // --- 1. EKRAN VE MOD YÖNETİMİ ---
         
         function getModeText() {
             switch(studioMode) {
@@ -360,42 +451,61 @@
         }
         
         function showScreen(screenId) {
+            // stopStudioLoop ve stopGameLoop artık yukarıda tanımlı
+            stopStudioLoop();
+            stopGameLoop();
+
             const screens = ['loginScreenContainer', 'homeScreen', 'studioScreen', 'gameScreen'];
             screens.forEach(id => {
                 document.getElementById(id).style.display = 'none';
             });
+
+            // Ekranı göster
             document.getElementById(screenId).style.display = 'block';
             
             if (screenId === 'studioScreen') {
-                document.getElementById('studioScreen').style.display = 'flex'; // Flex container ayarı
+                document.getElementById('studioScreen').style.display = 'flex';
                 updateToolbarInfo();
                 startStudioLoop();
-                loadChatHistory(document.getElementById('aiSelector').value); // Sohbeti yükle
-            } else {
-                stopStudioLoop();
-                if(transformControlsGroup) transformControlsGroup.visible = false;
-                selectedMesh = null;
-                selectedHandle = null;
+                loadChatHistory(document.getElementById('aiSelector').value); 
             }
             
             if (screenId === 'gameScreen') {
                  document.getElementById('gameScreen').style.display = 'block';
                 startGameLoop();
-            } else {
-                stopGameLoop();
             }
         }
         
         function loadAndShowStudio() {
-            loadMapFromLocal(); 
+            loadMapFromLocal(); // Hata giderildi: Fonksiyon artık yukarıda tanımlı
             setupStudio3D();    
             createBlocksFromData(studioScene, mapDataJSON, true); 
             showScreen('studioScreen');
         }
+
+        function loadMapFromLocalAndRefresh() {
+            if (loadMapFromLocal()) {
+                clearScene(studioScene);
+                createBlocksFromData(studioScene, mapDataJSON, true);
+                selectedMesh = null;
+                attachHandles(null);
+                updateToolbarInfo();
+            }
+        }
         
-        // ... (JSON, Harita Ekleme/Temizleme fonksiyonları aynen kalır) ... 
-        
-        // --- 2. 3D STUDIO KURULUMU VE MANTIĞI (Kısaltıldı) ---
+        function loadAndStartGame() { // Hata giderildi: Fonksiyon artık tanımlı
+            loadMapFromLocal(); 
+            setupGame3D(); 
+            showScreen('gameScreen');
+        }
+
+        function clearMap() {
+            clearScene(studioScene);
+            addBlock(0, -0.5, 0, 50, 1, 50); 
+            saveMapToLocal();
+        }
+
+        // --- 2. 3D STUDIO KURULUMU VE MANTIĞI ---
 
         function setupStudio3D() {
             if (studioScene) return; 
@@ -426,11 +536,122 @@
             setupStudioControls(studioRenderer.domElement);
         }
         
-        // ... (addBlock, createBlocksFromData fonksiyonları aynen kalır) ... 
-
-        // --- HANDLE YARDIMCI FONKSİYONLARI (Aynen Kalır) ---
-        // ... (createArrow, createResizeSphere, createRotationTorus, attachHandles aynen kalır) ...
+        function addBlock(x, y, z, w = 4, h = 4, d = 4, color = 0x228B22) {
+            if (!studioScene) return; 
+            
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshLambertMaterial({ color: color });
+            const block = new THREE.Mesh(geometry, material);
+            
+            block.position.set(x, y, z);
+            block.scale.set(w, h, d);
+            
+            block.userData = { isBlock: true, id: Date.now() }; 
+            studioScene.add(block); 
+        }
         
+        function createBlocksFromData(scene, data, isStudio) {
+            clearScene(scene); 
+            data.forEach(d => {
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                const material = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                const block = new THREE.Mesh(geometry, material);
+                
+                block.position.set(d.x, d.y, d.z);
+                block.scale.set(d.w, d.h, d.d);
+
+                block.userData = { isBlock: true, id: Date.now() }; 
+                scene.add(block);
+            });
+        }
+        
+        // --- HANDLE YARDIMCI FONKSİYONLARI ---
+
+        function createArrow(axis, color) {
+            const dir = new THREE.Vector3();
+            if (axis === 'x') dir.set(1, 0, 0);
+            if (axis === 'y') dir.set(0, 1, 0);
+            if (axis === 'z') dir.set(0, 0, 1);
+
+            const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), ARROW_LENGTH, color, 1.5, 1);
+            
+            arrow.userData = { isHandle: true, axis: axis, mode: 'n', color: color };
+            arrow.children.forEach(child => child.userData = arrow.userData); 
+
+            return arrow;
+        }
+
+        function createResizeSphere(pos, axis, dir, color, mesh) {
+            const handleGeometry = new THREE.SphereGeometry(HANDLE_SIZE, 12, 12);
+            const handleMaterial = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.8 });
+            const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+            handle.position.copy(pos);
+            handle.userData = { 
+                isHandle: true, 
+                axis: axis, 
+                direction: dir, 
+                mode: 'b',
+                parentMesh: mesh 
+            };
+            return handle;
+        }
+
+        function createRotationTorus(axis, color) {
+            const torusGeometry = new THREE.TorusGeometry(8, 0.2, 8, 50);
+            const handle = new THREE.Mesh(torusGeometry, new THREE.MeshBasicMaterial({ color: color, wireframe: true }));
+            handle.userData = { isHandle: true, axis: axis, mode: 'o' };
+            
+            if (axis === 'x') handle.rotation.z = Math.PI / 2;
+            if (axis === 'z') handle.rotation.x = Math.PI / 2;
+            
+            return handle;
+        }
+
+
+        // --- HANDLE OLUŞTURMA MANTIĞI ---
+
+        function attachHandles(mesh) {
+            if (!transformControlsGroup) return;
+
+            clearScene(transformControlsGroup);
+            transformControlsGroup.visible = false;
+            
+            if (!mesh) return;
+            
+            transformControlsGroup.position.copy(mesh.position);
+            transformControlsGroup.rotation.copy(mesh.rotation);
+            const scale = mesh.scale;
+            
+            if (studioMode === 'n') {
+                transformControlsGroup.add(createArrow('x', 0xff0000));
+                transformControlsGroup.add(createArrow('y', 0x00ff00));
+                transformControlsGroup.add(createArrow('z', 0x0000ff));
+                
+            } else if (studioMode === 'b') {
+                const handlePositions = [
+                    { axis: 'x', dir: 1, pos: new THREE.Vector3(scale.x / 2, 0, 0), color: 0xff0000 }, 
+                    { axis: 'x', dir: -1, pos: new THREE.Vector3(-scale.x / 2, 0, 0), color: 0xff0000 }, 
+                    { axis: 'y', dir: 1, pos: new THREE.Vector3(0, scale.y / 2, 0), color: 0x00ff00 }, 
+                    { axis: 'y', dir: -1, pos: new THREE.Vector3(0, -scale.y / 2, 0), color: 0x00ff00 }, 
+                    { axis: 'z', dir: 1, pos: new THREE.Vector3(0, 0, scale.z / 2), color: 0x0000ff }, 
+                    { axis: 'z', dir: -1, pos: new THREE.Vector3(0, 0, -scale.z / 2), color: 0x0000ff } 
+                ];
+
+                handlePositions.forEach(h => {
+                    const handle = createResizeSphere(h.pos, h.axis, h.dir, h.color, mesh);
+                    transformControlsGroup.add(handle);
+                });
+                
+            } else if (studioMode === 'o') {
+                transformControlsGroup.add(createRotationTorus('x', 0xff0000));
+                transformControlsGroup.add(createRotationTorus('y', 0x00ff00));
+                transformControlsGroup.add(createRotationTorus('z', 0x0000ff));
+            }
+
+            transformControlsGroup.visible = true;
+        }
+
+
         // --- 3. STUDIO KONTROLLERİ VE MANİPÜLASYON ---
 
         let rotationX = 0;
@@ -461,7 +682,7 @@
             domElement.addEventListener('mouseup', onMouseUp);
             domElement.addEventListener('mouseleave', onMouseUp); 
             
-            // YENİ: Fare Tekerleği ile Zoom
+            // Fare Tekerleği ile Zoom
             domElement.addEventListener('wheel', onStudioWheel);
         }
 
@@ -469,26 +690,224 @@
             e.preventDefault();
             
             const zoomSpeed = 0.05;
-            // deltaY pozitif (aşağı kaydırma) = Uzaklaşma (zoom out)
-            // deltaY negatif (yukarı kaydırma) = Yakınlaşma (zoom in)
             
             const targetDistance = studioCamera.position.length();
             let newDistance = targetDistance + e.deltaY * zoomSpeed * targetDistance / 100;
             
-            // Sınırlama (örneğin 5 birim ile 200 birim arası)
             newDistance = Math.max(5, Math.min(200, newDistance));
             
-            // Kamera pozisyonunu yeni mesafeye göre ayarla (yönünü koruyarak)
             studioCamera.position.normalize().multiplyScalar(newDistance);
         }
         
-        // ... (onMouseDown, onMouseMove, onMouseUp fonksiyonları aynen kalır) ...
-        // ... (updateCamera, animateStudio, startStudioLoop, stopStudioLoop fonksiyonları aynen kalır) ...
+        function onMouseDown(e) {
+            if (e.button !== 0 || !studioScene) return;
+
+            mouse.x = (e.offsetX / CANVAS_W) * 2 - 1;
+            mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
+            raycaster.setFromCamera(mouse, studioCamera);
+            
+            if (transformControlsGroup.visible) {
+                const intersectsHandle = raycaster.intersectObjects(transformControlsGroup.children, true); 
+                
+                let foundHandle = intersectsHandle.find(i => {
+                    const obj = i.object;
+                    const handleUserData = obj.userData.isHandle ? obj.userData : obj.parent && obj.parent.userData.isHandle ? obj.parent.userData : null;
+                    return handleUserData && handleUserData.mode === studioMode;
+                });
+                
+                if (foundHandle) {
+                    selectedHandle = foundHandle.object.userData.isHandle ? foundHandle.object : foundHandle.object.parent;
+                    
+                    if (selectedHandle.userData.mode === 'b') {
+                        selectedMesh = selectedHandle.userData.parentMesh; 
+                    } 
+                    
+                    selectedHandle.userData.dragStartPoint = foundHandle.point.clone();
+                    
+                    mouseLook = false; 
+                    return; 
+                }
+            }
+
+            if (selectedMesh) selectedMesh.material.color.set(0x228B22);
+            selectedHandle = null;
+            
+            const intersectsBlock = raycaster.intersectObjects(studioScene.children.filter(c => c.userData.isBlock));
+
+            if (intersectsBlock.length > 0) {
+                selectedMesh = intersectsBlock[0].object;
+                selectedMesh.material.color.set(0xffa500); 
+                
+                attachHandles(selectedMesh);
+                updateToolbarInfo();
+                
+                mouseLook = false; 
+                
+                if (studioMode === 'n') {
+                    dragOffset.subVectors(selectedMesh.position, intersectsBlock[0].point);
+                }
+                
+            } else {
+                selectedMesh = null;
+                attachHandles(null);
+                updateToolbarInfo();
+                mouseLook = true;
+                rotationX = e.clientX;
+                rotationY = e.clientY;
+            }
+        }
+
+        function onMouseMove(e) {
+            mouse.x = (e.offsetX / CANVAS_W) * 2 - 1;
+            mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
+
+            if (mouseLook) {
+                const deltaX = e.clientX - rotationX;
+                const deltaY = e.clientY - rotationY;
+                
+                studioCamera.rotation.y -= deltaX * rotateSpeed;
+                studioCamera.rotation.x -= deltaY * rotateSpeed;
+                studioCamera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, studioCamera.rotation.x));
+
+                rotationX = e.clientX;
+                rotationY = e.clientY;
+            } else if (selectedHandle) {
+                raycaster.setFromCamera(mouse, studioCamera);
+                const mesh = selectedMesh;
+                const axis = selectedHandle.userData.axis;
+                const startPoint = selectedHandle.userData.dragStartPoint;
+                
+                if (studioMode === 'b') {
+                    const direction = selectedHandle.userData.direction;
+                    
+                    let camDirection = new THREE.Vector3();
+                    studioCamera.getWorldDirection(camDirection);
+                    const plane = new THREE.Plane(camDirection, -startPoint.dot(camDirection));
+
+                    const intersectPoint = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(plane, intersectPoint);
+                    
+                    if (intersectPoint) {
+                        const deltaVector = new THREE.Vector3().subVectors(intersectPoint, startPoint);
+                        
+                        const worldAxis = new THREE.Vector3();
+                        if (axis === 'x') worldAxis.set(1, 0, 0);
+                        if (axis === 'y') worldAxis.set(0, 1, 0);
+                        if (axis === 'z') worldAxis.set(0, 0, 1);
+                        worldAxis.applyQuaternion(mesh.quaternion);
+                        
+                        const moveDistance = deltaVector.dot(worldAxis);
+                        
+                        let newDimension = mesh.scale[axis] + 2 * moveDistance * direction;
+                        newDimension = Math.max(0.5, newDimension); 
+
+                        const oldDimension = mesh.scale[axis];
+                        const delta = newDimension - oldDimension;
+                        
+                        if (Math.abs(delta) > 0.01) {
+                            mesh.scale[axis] = newDimension;
+                            mesh.position[axis] += (delta / 2) * direction;
+
+                            selectedHandle.userData.dragStartPoint = intersectPoint.clone();
+                            attachHandles(mesh); 
+                        }
+                    }
+
+                } else if (studioMode === 'n') {
+                    const worldAxis = new THREE.Vector3();
+                    if (axis === 'x') worldAxis.set(1, 0, 0);
+                    if (axis === 'y') worldAxis.set(0, 1, 0);
+                    if (axis === 'z') worldAxis.set(0, 0, 1);
+                    worldAxis.applyQuaternion(mesh.quaternion); 
+
+                    let camDirection = new THREE.Vector3();
+                    studioCamera.getWorldDirection(camDirection);
+                    
+                    const plane = new THREE.Plane(camDirection, -startPoint.dot(camDirection));
+                    const intersectPoint = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(plane, intersectPoint);
+
+                    if (intersectPoint) {
+                        const deltaVector = new THREE.Vector3().subVectors(intersectPoint, startPoint);
+                        const moveDistance = deltaVector.dot(worldAxis);
+                        const moveVector = worldAxis.clone().multiplyScalar(moveDistance);
+                        
+                        mesh.position.add(moveVector);
+                        
+                        selectedHandle.userData.dragStartPoint.copy(intersectPoint);
+                        
+                        attachHandles(mesh); 
+                    }
+                }
+                
+            } else if (selectedMesh && studioMode === 'n') {
+                // Blok Taşıma (XZ serbest taşıma)
+                raycaster.setFromCamera(mouse, studioCamera);
+                
+                const planeY = selectedMesh.position.y;
+                const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+                const intersectPoint = new THREE.Vector3();
+                raycaster.ray.intersectPlane(plane, intersectPoint);
+
+                if (intersectPoint) {
+                    selectedMesh.position.x = intersectPoint.x + dragOffset.x;
+                    selectedMesh.position.z = intersectPoint.z + dragOffset.z;
+                    
+                    if (transformControlsGroup.visible) {
+                        transformControlsGroup.position.copy(selectedMesh.position);
+                    }
+                }
+            }
+        }
+
+        function onMouseUp() {
+            mouseLook = false;
+            if (selectedHandle) {
+                selectedHandle = null;
+            }
+        }
+
+        function updateCamera() {
+            const direction = new THREE.Vector3();
+            studioCamera.getWorldDirection(direction);
+
+            let moveVector = new THREE.Vector3(0, 0, 0);
+
+            if (keys['w']) moveVector.z -= 1;
+            if (keys['s']) moveVector.z += 1;
+            if (keys['a']) moveVector.x -= 1;
+            if (keys['d']) moveVector.x += 1;
+            
+            if (keys['q']) studioCamera.position.y -= moveSpeed; 
+            if (keys['e']) studioCamera.position.y += moveSpeed; 
+
+            if (moveVector.lengthSq() > 0) {
+                moveVector.normalize().multiplyScalar(moveSpeed);
+                
+                const forward = direction.clone();
+                forward.y = 0; 
+                forward.normalize();
+                studioCamera.position.addScaledVector(forward, -moveVector.z);
+
+                const right = new THREE.Vector3().crossVectors(studioCamera.up, forward).normalize();
+                studioCamera.position.addScaledVector(right, moveVector.x);
+            }
+        }
+
+        // --- 4. 3D STUDIO DÖNGÜSÜ ---
+
+        function animateStudio() {
+            updateCamera();
+            studioRenderer.render(studioScene, studioCamera);
+            studioAnimationFrame = requestAnimationFrame(animateStudio);
+        }
 
         // --- 5. OYUN CLIENT MANTIĞI (WASD + SPACE + TPS Kamera) ---
         
         function setupGame3D() {
-            // ... (Kurulum)
+            // Sadece bir kere kurulduğundan emin olmak için
+             if (gameScene) return;
+             
             gameScene = new THREE.Scene();
             gameScene.background = new THREE.Color(0x87ceeb);
 
@@ -513,16 +932,24 @@
             gameScene.add(playerMesh);
 
             playerMesh.userData = {
-                velX: 0, velY: 0, velZ: 0, onGround: false, rotationY: 0, rotationX: 0 // X rotasyonu eklendi
+                velX: 0, velY: 0, velZ: 0, onGround: false, rotationY: 0, rotationX: 0 
             };
             
             // Kamera Kontrolleri
             container.addEventListener('mousedown', onGameMouseDown);
             document.addEventListener('mousemove', onGameMouseMove);
             document.addEventListener('mouseup', onGameMouseUp);
-            container.addEventListener('wheel', onGameWheel); // YENİ: Fare Tekerleği
+            container.addEventListener('wheel', onGameWheel); 
 
-            // ... (Klavye Zıplama aynen kalır) ...
+            // Klavye Zıplama
+            window.addEventListener('keydown', (e) => { 
+                keys[e.key.toLowerCase()] = true; 
+                if (e.key === ' ' && playerMesh && playerMesh.userData.onGround) {
+                    playerMesh.userData.velY = JUMP_FORCE; 
+                    playerMesh.userData.onGround = false;
+                }
+            });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
         }
 
         function onGameMouseDown(e) {
@@ -544,16 +971,16 @@
             if (!isGameDragging || !playerMesh) return;
             
             const deltaX = e.clientX - gameDragStart.x;
-            const deltaY = e.clientY - gameDragStart.y; // YENİ: Dikey hareket de alınır
+            const deltaY = e.clientY - gameDragStart.y;
             
             // Player'ı Y ekseninde döndür (Sağa/Sola bakış)
             playerMesh.rotation.y -= deltaX * GAME_ROTATE_SPEED;
             playerMesh.userData.rotationY = playerMesh.rotation.y;
             
-            // Kamera açısını Y ekseninde döndür (Yukarı/Aşağı bakış - Player'ı döndürmez, sadece kamerayı)
+            // Kamera açısını X ekseninde döndür (Yukarı/Aşağı bakış - Player'ı döndürmez, sadece kamerayı)
             playerMesh.userData.rotationX += deltaY * GAME_ROTATE_SPEED;
             
-            // X rotasyonunu sınırla (Çok yukarı veya çok aşağı bakmayı engelle)
+            // X rotasyonunu sınırla 
             playerMesh.userData.rotationX = Math.max(-Math.PI * 0.4, Math.min(Math.PI * 0.4, playerMesh.userData.rotationX));
             
             gameDragStart.x = e.clientX;
@@ -564,7 +991,6 @@
             e.preventDefault();
             const zoomFactor = 0.05;
             
-            // deltaY pozitif = Uzaklaşma (kamerayı dışarı it)
             currentZoomLevel += e.deltaY * zoomFactor; 
             
             currentZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoomLevel));
@@ -577,8 +1003,6 @@
             let currentPos = playerMesh.position;
             
             let currentRotationY = userData.rotationY;
-            
-            // ... (Hareket Vektörleri ve Fizik aynen kalır) ...
             
             // --- HAREKET ---
             let forwardVector = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotationY);
@@ -593,32 +1017,51 @@
             userData.velY -= GRAVITY;
             currentPos.y += userData.velY;
             userData.onGround = false;
-            // ... (Çarpışma Kontrolü aynen kalır) ...
-
-            // --- 3. Kamera Takibi (TPS) ---
             
-            // YENİ: Zoom seviyesini uygula
+            // Basit Çarpışma Kontrolü (Zemin)
+            gameScene.children.forEach(mesh => {
+                if (mesh.userData.isBlock) {
+                    if (userData.velY < 0 && 
+                        currentPos.x > mesh.position.x - mesh.scale.x / 2 && currentPos.x < mesh.position.x + mesh.scale.x / 2 &&
+                        currentPos.z > mesh.position.z - mesh.scale.z / 2 && currentPos.z < mesh.position.z + mesh.scale.z / 2) {
+                        
+                        const floorY = mesh.position.y + mesh.scale.y / 2;
+                        
+                        if (currentPos.y - PLAYER_HEIGHT / 2 < floorY) {
+                            currentPos.y = floorY + PLAYER_HEIGHT / 2; 
+                            userData.velY = 0;
+                            userData.onGround = true;
+                        }
+                    }
+                }
+            });
+
+            // --- Kamera Takibi (TPS) ---
+            
             const zoomDistance = TPS_DISTANCE_DEFAULT * currentZoomLevel;
 
-            // Kamera rotasyonunu hesaplamak için bir geçici obje kullan
             const tempCameraPivot = new THREE.Object3D();
             tempCameraPivot.rotation.y = currentRotationY;
             
-            // X rotasyonunu (Yukarı/Aşağı bakış) pivot'a uygula
             tempCameraPivot.rotation.x = userData.rotationX; 
 
-            // Pozisyon hesaplaması
             const offset = new THREE.Vector3(0, TPS_HEIGHT, zoomDistance);
             offset.applyEuler(tempCameraPivot.rotation);
 
             gameCamera.position.copy(playerMesh.position).sub(offset);
             
-            // Kameranın Player'a bakmasını sağla
             gameCamera.lookAt(playerMesh.position.x, playerMesh.position.y + 2, playerMesh.position.z);
         }
 
-        // ... (drawGame, gameLoop, startGameLoop, stopGameLoop aynen kalır) ... 
+        function drawGame() {
+            gameRenderer.render(gameScene, gameCamera);
+        }
 
+        function gameLoop() {
+            updateGame();
+            drawGame();
+            gameAnimationFrame = requestAnimationFrame(gameLoop);
+        }
 
         // --- 6. AI MESAJLAŞMA MANTIĞI ---
         
@@ -651,9 +1094,9 @@
             const window = document.getElementById('chatWindow');
             window.innerHTML = '';
             
-            if (chatHistory[aiName].length === 0) {
+            if (!chatHistory[aiName] || chatHistory[aiName].length === 0) {
                  const firstMsg = AIS[aiName].response("merhaba");
-                 chatHistory[aiName].push({ sender: aiName, text: firstMsg });
+                 chatHistory[aiName] = [{ sender: aiName, text: firstMsg }];
             }
             
             chatHistory[aiName].forEach(msg => {
