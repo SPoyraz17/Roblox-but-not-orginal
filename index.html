@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ROBLOX Hibrit Platform - 3D</title>
+    <title>3D Platform Builder & Game</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script> 
     
@@ -216,11 +216,11 @@
         <div style="display: flex; flex-wrap: wrap;">
             <div class="game-tile" onclick="loadAndShowStudio();">
                 <h2>🖌️ 3D Studio (Harita Oluştur)</h2>
-                <p>**N**, **B**, **O** modları, **fare tekerleği** ile zoom ve **mobil arayüz** aktif.</p>
+                <p>**N/B/O** Modları, **Fare Tekerleği** ile zoom ve **AI Sohbet** aktif.</p>
             </div>
             <div class="game-tile" onclick="loadAndStartGame();">
                 <h2>▶️ Parkur Dünyası (Oyna - TPS)</h2>
-                <p>**WASD, Space**, **Sağ Tık** ile çevirme ve **fare tekerleği** ile zoom aktif.</p>
+                <p>**WASD, Zıplama**, **Sağ Tık** ile çevirme (**Yukarı/Aşağı** dahil) ve **Fare Tekerleği** ile zoom aktif.</p>
             </div>
         </div>
     </div>
@@ -244,7 +244,7 @@
                     <div style="border-top: 1px solid #ccc; margin-top: 10px; padding-top: 10px;">
                         <p>Kontroller:</p>
                         <ul>
-                            <li>**N/B/O:** Mod Değiştir</li>
+                            <li>**N/B/O:** Mod Değiştir (Taşıma/Boyutlandırma/Döndürme)</li>
                             <li>**Fare Tekerleği:** Yakınlaştır/Uzaklaştır</li>
                             <li>**Sağ Tık Sürükle:** Kamera Döndür</li>
                         </ul>
@@ -296,7 +296,7 @@
         let selectedMesh = null; 
         let selectedHandle = null; 
         let transformControlsGroup = null; 
-        let dragOffset = new THREE.Vector3(); // Taşıma ofseti
+        let dragOffset = new THREE.Vector3(); 
         
 
         const raycaster = new THREE.Raycaster();
@@ -331,7 +331,7 @@
             "KediKIZ": []
         };
         
-        // --- ÇEKİRDEK UTILITY & DÖNGÜ YÖNETİMİ (Hata Düzeltmeleri burada!) ---
+        // --- ÇEKİRDEK UTILITY & DÖNGÜ YÖNETİMİ ---
 
         /** Three.js sahnelerindeki tüm blokları temizler. */
         function clearScene(scene) {
@@ -451,7 +451,7 @@
         }
         
         function showScreen(screenId) {
-            // stopStudioLoop ve stopGameLoop artık yukarıda tanımlı
+            // Döngüleri durdur
             stopStudioLoop();
             stopGameLoop();
 
@@ -477,7 +477,7 @@
         }
         
         function loadAndShowStudio() {
-            loadMapFromLocal(); // Hata giderildi: Fonksiyon artık yukarıda tanımlı
+            loadMapFromLocal(); 
             setupStudio3D();    
             createBlocksFromData(studioScene, mapDataJSON, true); 
             showScreen('studioScreen');
@@ -493,7 +493,7 @@
             }
         }
         
-        function loadAndStartGame() { // Hata giderildi: Fonksiyon artık tanımlı
+        function loadAndStartGame() {
             loadMapFromLocal(); 
             setupGame3D(); 
             showScreen('gameScreen');
@@ -501,6 +501,7 @@
 
         function clearMap() {
             clearScene(studioScene);
+            // Varsayılan zemin ekle
             addBlock(0, -0.5, 0, 50, 1, 50); 
             saveMapToLocal();
         }
@@ -508,7 +509,10 @@
         // --- 2. 3D STUDIO KURULUMU VE MANTIĞI ---
 
         function setupStudio3D() {
-            if (studioScene) return; 
+            if (studioScene) {
+                studioRenderer.setSize(CANVAS_W, CANVAS_H);
+                return;
+            }
             
             studioScene = new THREE.Scene(); 
             studioScene.background = new THREE.Color(0x87ceeb); 
@@ -554,7 +558,7 @@
             clearScene(scene); 
             data.forEach(d => {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
-                const material = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                const material = new THREE.MeshLambertMaterial({ color: isStudio ? 0x228B22 : 0x00FF00 }); // Oyunda yeşil zemin olsun
                 const block = new THREE.Mesh(geometry, material);
                 
                 block.position.set(d.x, d.y, d.z);
@@ -566,7 +570,8 @@
         }
         
         // --- HANDLE YARDIMCI FONKSİYONLARI ---
-
+        // Bu kısım Studio'daki N/B/O modları için gerekli geometrik şekil oluşturma fonksiyonlarını içerir.
+        // ... (createArrow, createResizeSphere, createRotationTorus)
         function createArrow(axis, color) {
             const dir = new THREE.Vector3();
             if (axis === 'x') dir.set(1, 0, 0);
@@ -606,10 +611,7 @@
             
             return handle;
         }
-
-
-        // --- HANDLE OLUŞTURMA MANTIĞI ---
-
+        
         function attachHandles(mesh) {
             if (!transformControlsGroup) return;
 
@@ -682,7 +684,7 @@
             domElement.addEventListener('mouseup', onMouseUp);
             domElement.addEventListener('mouseleave', onMouseUp); 
             
-            // Fare Tekerleği ile Zoom
+            // YENİ: Fare Tekerleği ile Zoom
             domElement.addEventListener('wheel', onStudioWheel);
         }
 
@@ -751,7 +753,7 @@
                 selectedMesh = null;
                 attachHandles(null);
                 updateToolbarInfo();
-                mouseLook = true;
+                mouseLook = true; // Sağ Tık Kamera Kontrolü
                 rotationX = e.clientX;
                 rotationY = e.clientY;
             }
@@ -762,9 +764,11 @@
             mouse.y = -(e.offsetY / CANVAS_H) * 2 + 1;
 
             if (mouseLook) {
+                // Sağ Tık Basılıyken Kamera Döndürme
                 const deltaX = e.clientX - rotationX;
                 const deltaY = e.clientY - rotationY;
                 
+                // Kamerayı kendi etrafında döndürme
                 studioCamera.rotation.y -= deltaX * rotateSpeed;
                 studioCamera.rotation.x -= deltaY * rotateSpeed;
                 studioCamera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, studioCamera.rotation.x));
@@ -772,6 +776,7 @@
                 rotationX = e.clientX;
                 rotationY = e.clientY;
             } else if (selectedHandle) {
+                // Handle Manipülasyonu
                 raycaster.setFromCamera(mouse, studioCamera);
                 const mesh = selectedMesh;
                 const axis = selectedHandle.userData.axis;
@@ -814,6 +819,7 @@
                     }
 
                 } else if (studioMode === 'n') {
+                    // Eksen Kısıtlı Taşıma (Handle)
                     const worldAxis = new THREE.Vector3();
                     if (axis === 'x') worldAxis.set(1, 0, 0);
                     if (axis === 'y') worldAxis.set(0, 1, 0);
@@ -841,7 +847,7 @@
                 }
                 
             } else if (selectedMesh && studioMode === 'n') {
-                // Blok Taşıma (XZ serbest taşıma)
+                // Serbest Taşıma (XZ düzlemi)
                 raycaster.setFromCamera(mouse, studioCamera);
                 
                 const planeY = selectedMesh.position.y;
@@ -873,11 +879,13 @@
 
             let moveVector = new THREE.Vector3(0, 0, 0);
 
+            // WASD ile hareket (Kameranın baktığı yönde)
             if (keys['w']) moveVector.z -= 1;
             if (keys['s']) moveVector.z += 1;
             if (keys['a']) moveVector.x -= 1;
             if (keys['d']) moveVector.x += 1;
             
+            // Q/E ile Yukarı/Aşağı
             if (keys['q']) studioCamera.position.y -= moveSpeed; 
             if (keys['e']) studioCamera.position.y += moveSpeed; 
 
@@ -905,8 +913,11 @@
         // --- 5. OYUN CLIENT MANTIĞI (WASD + SPACE + TPS Kamera) ---
         
         function setupGame3D() {
-            // Sadece bir kere kurulduğundan emin olmak için
-             if (gameScene) return;
+             // Sadece bir kere kurulduğundan emin olmak için
+             if (gameScene) {
+                gameRenderer.setSize(CANVAS_W, CANVAS_H);
+                return;
+             }
              
             gameScene = new THREE.Scene();
             gameScene.background = new THREE.Color(0x87ceeb);
@@ -925,6 +936,7 @@
             
             createBlocksFromData(gameScene, mapDataJSON, false);
 
+            // Player Mesh oluşturma
             const playerGeo = new THREE.BoxGeometry(PLAYER_RADIUS * 2, PLAYER_HEIGHT, PLAYER_RADIUS * 2);
             const playerMat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
             playerMesh = new THREE.Mesh(playerGeo, playerMat);
@@ -977,7 +989,7 @@
             playerMesh.rotation.y -= deltaX * GAME_ROTATE_SPEED;
             playerMesh.userData.rotationY = playerMesh.rotation.y;
             
-            // Kamera açısını X ekseninde döndür (Yukarı/Aşağı bakış - Player'ı döndürmez, sadece kamerayı)
+            // Kamera açısını X ekseninde döndür (Yukarı/Aşağı bakış)
             playerMesh.userData.rotationX += deltaY * GAME_ROTATE_SPEED;
             
             // X rotasyonunu sınırla 
@@ -991,6 +1003,7 @@
             e.preventDefault();
             const zoomFactor = 0.05;
             
+            // Fare Tekerleği ile Zoom
             currentZoomLevel += e.deltaY * zoomFactor; 
             
             currentZoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoomLevel));
@@ -1013,12 +1026,11 @@
             if (keys['a']) currentPos.addScaledVector(rightVector, -MOVE_SPEED);
             if (keys['d']) currentPos.addScaledVector(rightVector, MOVE_SPEED);
 
-            // --- FİZİK ---
+            // --- FİZİK (Basit Yerçekimi ve Zemin Çarpışması) ---
             userData.velY -= GRAVITY;
             currentPos.y += userData.velY;
             userData.onGround = false;
             
-            // Basit Çarpışma Kontrolü (Zemin)
             gameScene.children.forEach(mesh => {
                 if (mesh.userData.isBlock) {
                     if (userData.velY < 0 && 
